@@ -11,9 +11,6 @@ The data is already provided for you in `./data/Seinfeld_Scripts.txt` and you're
 
 
 ```python
-"""
-DON'T MODIFY ANYTHING IN THIS CELL
-"""
 # load in data
 import helper
 data_dir = './data/Seinfeld_Scripts.txt'
@@ -25,11 +22,6 @@ Play around with `view_line_range` to view different parts of the data. This wil
 
 
 ```python
-view_line_range = (0, 10)
-
-"""
-DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
-"""
 import numpy as np
 
 print('Dataset Stats')
@@ -40,16 +32,41 @@ print('Number of lines: {}'.format(len(lines)))
 word_count_line = [len(line.split()) for line in lines]
 print('Average number of words in each line: {}'.format(np.average(word_count_line)))
 
+view_line_range = (0, 20)
 print()
 print('The lines {} to {}:'.format(*view_line_range))
 print('\n'.join(text.split('\n')[view_line_range[0]:view_line_range[1]]))
 ```
 
----
+    Dataset Stats
+    Roughly the number of unique words: 46367
+    Number of lines: 109233
+    Average number of words in each line: 5.544240293684143
+    
+    The lines 0 to 20:
+    jerry: do you know what this is all about? do you know, why were here? to be out, this is out...and out is one of the single most enjoyable experiences of life. people...did you ever hear people talking about we should go out? this is what theyre talking about...this whole thing, were all out now, no one is home. not one person here is home, were all out! there are people trying to find us, they dont know where we are. (on an imaginary phone) did you ring?, i cant find him. where did he go? he didnt tell me where he was going. he must have gone out. you wanna go out you get ready, you pick out the clothes, right? you take the shower, you get all ready, get the cash, get your friends, the car, the spot, the reservation...then youre standing around, what do you do? you go we gotta be getting back. once youre out, you wanna get back! you wanna go to sleep, you wanna get up, you wanna go out again tomorrow, right? where ever you are in life, its my feeling, youve gotta go. 
+    
+    jerry: (pointing at georges shirt) see, to me, that button is in the worst possible spot. the second button literally makes or breaks the shirt, look at it. its too high! its in no-mans-land. you look like you live with your mother. 
+    
+    george: are you through? 
+    
+    jerry: you do of course try on, when you buy? 
+    
+    george: yes, it was purple, i liked it, i dont actually recall considering the buttons. 
+    
+    jerry: oh, you dont recall? 
+    
+    george: (on an imaginary microphone) uh, no, not at this time. 
+    
+    jerry: well, senator, id just like to know, what you knew and when you knew it. 
+    
+    claire: mr. seinfeld. mr. costanza. 
+    
+    george: are, are you sure this is decaf? wheres the orange indicator? 
+    
+
+
 ## Implement Pre-processing Functions
-The first thing to do to any dataset is pre-processing.  Implement the following pre-processing functions below:
-- Lookup Table
-- Tokenize Punctuation
 
 ### Lookup Table
 To create a word embedding, you first need to transform the words to ids.  In this function, create two dictionaries:
@@ -61,6 +78,7 @@ Return these dictionaries in the following **tuple** `(vocab_to_int, int_to_voca
 
 ```python
 import problem_unittests as tests
+from collections import Counter
 
 def create_lookup_tables(text):
     """
@@ -68,17 +86,19 @@ def create_lookup_tables(text):
     :param text: The text of tv scripts split into words
     :return: A tuple of dicts (vocab_to_int, int_to_vocab)
     """
-    # TODO: Implement Function
+    ## Order by most common word
+    vocab = Counter(text).most_common()
+    ## Start index at 1 in case we need to padd results later
+    vocab_to_int = {word: i for i, word in enumerate(vocab, 1)}
+    int_to_vocab = dict(enumerate(vocab, 1))
     
-    # return tuple
-    return (None, None)
+    return vocab_to_int, int_to_vocab
 
-
-"""
-DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
-"""
 tests.test_create_lookup_tables(create_lookup_tables)
 ```
+
+    Tests Passed
+
 
 ### Tokenize Punctuation
 We'll be splitting the script into a word array using spaces as delimiters.  However, punctuations like periods and exclamation marks can create multiple ids for the same word. For example, "bye" and "bye!" would generate two different word ids.
@@ -104,15 +124,27 @@ def token_lookup():
     Generate a dict to turn punctuation into a token.
     :return: Tokenized dictionary where the key is the punctuation and the value is the token
     """
-    # TODO: Implement Function
-        
-    return None
+    ## Would be great if text.punctuation had a name dict
+    punctuation_dict = {
+        '.': '||Period||', 
+        ',': '||Comma||',
+        '"': '||Quotation_Mark||', 
+        ';': '||Semicolon||',
+        '!': '||Exclamation_Mark||', 
+        '?': '||Question_Mark||',
+        '(': '||Left_Parentheses||', 
+        ')': '||Rigth_Paranthesis||',
+        '-': '||Dash||', 
+        '\n': '||Return||',
+    }
+    
+    return punctuation_dict
 
-"""
-DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
-"""
 tests.test_tokenize(token_lookup)
 ```
+
+    Tests Passed
+
 
 ## Pre-process all the data and save it
 
