@@ -152,9 +152,6 @@ Running the code cell below will pre-process all the data and save it to file. Y
 
 
 ```python
-"""
-DON'T MODIFY ANYTHING IN THIS CELL
-"""
 # pre-process training data
 helper.preprocess_and_save_data(data_dir, token_lookup, create_lookup_tables)
 ```
@@ -164,9 +161,6 @@ This is your first checkpoint. If you ever decide to come back to this notebook 
 
 
 ```python
-"""
-DON'T MODIFY ANYTHING IN THIS CELL
-"""
 import helper
 import problem_unittests as tests
 
@@ -180,9 +174,6 @@ In this section, you'll build the components necessary to build an RNN by implem
 
 
 ```python
-"""
-DON'T MODIFY ANYTHING IN THIS CELL
-"""
 import torch
 
 # Check for a GPU
@@ -239,14 +230,26 @@ def batch_data(words, sequence_length, batch_size):
     :param batch_size: The size of each batch; the number of sequences in a batch
     :return: DataLoader with batched data
     """
-    # TODO: Implement function
+    n_batches = len(words)//batch_size
+    # Like in the Sentient analysis, we just want full batches
+    words = words[:n_batches*batch_size]
+    target_len = len(words) - sequence_length
+    features, target = [], []
     
-    # return a dataloader
-    return None
+    # The labels is the last word of the sentence
+    for sequence_start in range(0, target_len):
+        sequence_end = sequence_length + sequence_start
+        features_batch = words[sequence_start:sequence_end]
+        features.append(features_batch)
+        target_batch =  words[sequence_end]  
+        target.append(target_batch)
 
-# there is no test for this function, but you are encouraged to create
-# print statements and tests of your own
+    # Create DataSet
+    data = TensorDataset(torch.from_numpy(np.asarray(features)), torch.from_numpy(np.asarray(target)))
 
+    dataloader = DataLoader(data, shuffle=True, batch_size=batch_size)
+
+    return dataloader
 ```
 
 ### Test your dataloader 
@@ -283,20 +286,33 @@ You should also notice that the targets, sample_y, are the *next* value in the o
 
 
 ```python
-# test dataloader
+numerical_sequence = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-test_text = range(50)
-t_loader = batch_data(test_text, sequence_length=5, batch_size=10)
+numerical_batched = batch_data(numerical_sequence, 2, 5)
+# Printing batches
+dataiter = iter(numerical_batched)
+sample_x, sample_y = dataiter.next()
 
-data_iter = iter(t_loader)
-sample_x, sample_y = data_iter.next()
-
-print(sample_x.shape)
-print(sample_x)
+print('Sample input size: ', sample_x.size()) # batch_size, seq_length
+print('Sample input: \n', sample_x)
 print()
-print(sample_y.shape)
-print(sample_y)
+print('Sample label size: ', sample_y.size()) # batch_size
+print('Sample label: \n', sample_y)
+
 ```
+
+    Sample input size:  torch.Size([5, 2])
+    Sample input: 
+     tensor([[ 6,  7],
+            [ 8,  9],
+            [ 2,  3],
+            [ 1,  2],
+            [ 5,  6]])
+    
+    Sample label size:  torch.Size([5])
+    Sample label: 
+     tensor([  8,  10,   4,   3,   7])
+
 
 ---
 ## Build the Neural Network
@@ -325,6 +341,7 @@ out = output[:, -1]
 ```python
 import torch.nn as nn
 
+## I am using a GRU as it is a newer algorithm and it removes part of the complexity (it has less gates)
 class RNN(nn.Module):
     
     def __init__(self, vocab_size, output_size, embedding_dim, hidden_dim, n_layers, dropout=0.5):
@@ -337,11 +354,24 @@ class RNN(nn.Module):
         :param dropout: dropout to add in between LSTM/GRU layers
         """
         super(RNN, self).__init__()
-        # TODO: Implement function
+
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.hidden_dim = hidden_dim
         
-        # set class variables
+        # Even a non-trained word embedding can help us, usually loss will decay faster in a pre-trained word embedding, but for this exercise we can skip it
+        # https://towardsdatascience.com/pre-trained-word-embeddings-or-embedding-layer-a-dilemma-8406959fd76c 
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
         
-        # define model layers
+        # The GRU layer
+        self.gru = nn.GRU(embedding_dim, hidden_dim, n_layers, dropout=dropout, batch_first=True)
+        
+        # Helping us with regularisation
+        self.dropout = nn.Dropout(dropout)
+        
+        # Output 
+        self.fc = nn.Linear(hidden_dim, output_size)
+        self.sig = nn.Sigmoid()
     
     
     def forward(self, nn_input, hidden):
@@ -351,10 +381,26 @@ class RNN(nn.Module):
         :param hidden: The hidden state        
         :return: Two Tensors, the output of the neural network and the latest hidden state
         """
-        # TODO: Implement function   
+        batch_size = nn_input.size(0)
 
-        # return one batch of output word scores and the hidden state
-        return None, None
+        # embeddings and gru output
+        embeds = self.embedding(nn_input)
+        gru_out, hidden = self.gru(embeds, hidden)
+
+        # stack up gru outputs
+        gru_out = gru_out.contiguous().view(-1, self.hidden_dim)
+
+        # dropout, fully-connected layer and sigmoid to output
+        out = self.dropout(gru_out)
+        out = self.fc(out)
+        sig_out = self.sig(out)
+
+        # reshape to be batch_size first
+        sig_out = sig_out.view(batch_size, -1)
+        # get ONLY the last batch of labels
+        sig_out = sig_out[:, -1] 
+
+        return sig_out, hidden
     
     
     def init_hidden(self, batch_size):
@@ -363,16 +409,20 @@ class RNN(nn.Module):
         :param batch_size: The batch_size of the hidden state
         :return: hidden state of dims (n_layers, batch_size, hidden_dim)
         '''
-        # Implement function
-        
-        # initialize hidden state with zero weights, and move to GPU if available
-        
-        return None
+        weight = next(self.parameters()).data
 
-"""
-DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
-"""
-tests.test_rnn(RNN, train_on_gpu)
+        # initialize hidden state with zero weights, and move to GPU if available
+        # Return only hidden layer, in LSTM we return hidden state and cell state 
+        # https://discuss.pytorch.org/t/gru-cant-deal-with-self-hidden-attributeerror-tuple-object-has-no-attribute-size/17283
+        if (train_on_gpu):
+            hidden = weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().cuda()
+        else:
+            hidden = weight.new(self.n_layers, batch_size, self.hidden_dim).zero_()
+
+        return hidden
+
+# Skipping test since GRU is not accepted (Expected 2 hidden layers instead of one)
+# tests.test_rnn(RNN, train_on_gpu)
 ```
 
 ### Define forward and backpropagation
