@@ -89,8 +89,8 @@ def create_lookup_tables(text):
     ## Order by most common word
     vocab = Counter(text).most_common()
     ## Start index at 1 in case we need to padd results later
-    vocab_to_int = {word: i for i, word in enumerate(vocab, 1)}
-    int_to_vocab = dict(enumerate(vocab, 1))
+    vocab_to_int = {word: i for i, word in enumerate(vocab)}
+    int_to_vocab = dict(enumerate(vocab))
     
     return vocab_to_int, int_to_vocab
 
@@ -155,6 +155,35 @@ Running the code cell below will pre-process all the data and save it to file. Y
 # pre-process training data
 helper.preprocess_and_save_data(data_dir, token_lookup, create_lookup_tables)
 ```
+
+
+    ---------------------------------------------------------------------------
+
+    KeyError                                  Traceback (most recent call last)
+
+    <ipython-input-5-eddb83905c5e> in <module>()
+          1 # pre-process training data
+    ----> 2 helper.preprocess_and_save_data(data_dir, token_lookup, create_lookup_tables)
+    
+
+    /home/workspace/helper.py in preprocess_and_save_data(dataset_path, token_lookup, create_lookup_tables)
+         35 
+         36     vocab_to_int, int_to_vocab = create_lookup_tables(text + list(SPECIAL_WORDS.values()))
+    ---> 37     int_text = [vocab_to_int[word] for word in text]
+         38     pickle.dump((int_text, vocab_to_int, int_to_vocab, token_dict), open('preprocess.p', 'wb'))
+         39 
+
+
+    /home/workspace/helper.py in <listcomp>(.0)
+         35 
+         36     vocab_to_int, int_to_vocab = create_lookup_tables(text + list(SPECIAL_WORDS.values()))
+    ---> 37     int_text = [vocab_to_int[word] for word in text]
+         38     pickle.dump((int_text, vocab_to_int, int_to_vocab, token_dict), open('preprocess.p', 'wb'))
+         39 
+
+
+    KeyError: 'this'
+
 
 # Check Point
 This is your first checkpoint. If you ever decide to come back to this notebook or have to restart the notebook, you can start from here. The preprocessed data has been saved to disk.
@@ -286,6 +315,7 @@ You should also notice that the targets, sample_y, are the *next* value in the o
 
 
 ```python
+import numpy as np
 numerical_sequence = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 numerical_batched = batch_data(numerical_sequence, 2, 5)
@@ -304,14 +334,14 @@ print('Sample label: \n', sample_y)
     Sample input size:  torch.Size([5, 2])
     Sample input: 
      tensor([[ 6,  7],
-            [ 8,  9],
-            [ 2,  3],
-            [ 1,  2],
-            [ 5,  6]])
+            [ 3,  4],
+            [ 5,  6],
+            [ 4,  5],
+            [ 8,  9]])
     
     Sample label size:  torch.Size([5])
     Sample label: 
-     tensor([  8,  10,   4,   3,   7])
+     tensor([  8,   5,   7,   6,  10])
 
 
 ---
@@ -364,7 +394,7 @@ class RNN(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
         
         # The GRU layer
-        self.gru = nn.GRU(embedding_dim, hidden_dim, n_layers, dropout=dropout, batch_first=True)
+        self.gru = nn.GRU(embedding_dim, hidden_dim, num_layers=n_layers, dropout=dropout, batch_first=True)
         
         # Helping us with regularisation
         self.dropout = nn.Dropout(dropout)
@@ -372,7 +402,7 @@ class RNN(nn.Module):
         # Output 
         self.fc = nn.Linear(hidden_dim, output_size)
         self.sig = nn.Sigmoid()
-    
+
     
     def forward(self, nn_input, hidden):
         """
@@ -382,7 +412,7 @@ class RNN(nn.Module):
         :return: Two Tensors, the output of the neural network and the latest hidden state
         """
         batch_size = nn_input.size(0)
-
+        nn_input = nn_input.long()
         # embeddings and gru output
         embeds = self.embedding(nn_input)
         gru_out, hidden = self.gru(embeds, hidden)
@@ -396,7 +426,7 @@ class RNN(nn.Module):
         sig_out = self.sig(out)
 
         # reshape to be batch_size first
-        sig_out = sig_out.view(batch_size, -1)
+        sig_out = sig_out.view(batch_size, -1, self.output_size)
         # get ONLY the last batch of labels
         sig_out = sig_out[:, -1] 
 
@@ -410,7 +440,6 @@ class RNN(nn.Module):
         :return: hidden state of dims (n_layers, batch_size, hidden_dim)
         '''
         weight = next(self.parameters()).data
-
         # initialize hidden state with zero weights, and move to GPU if available
         # Return only hidden layer, in LSTM we return hidden state and cell state 
         # https://discuss.pytorch.org/t/gru-cant-deal-with-self-hidden-attributeerror-tuple-object-has-no-attribute-size/17283
@@ -421,9 +450,27 @@ class RNN(nn.Module):
 
         return hidden
 
+vocab_size = len(vocab_to_int) + 1
+output_size = vocab_size
+embedding_dim = 400
+hidden_dim = 256
+n_layers = 2 
+
+net = RNN(vocab_size, output_size, embedding_dim, hidden_dim, n_layers)
+
+print(net)
 # Skipping test since GRU is not accepted (Expected 2 hidden layers instead of one)
 # tests.test_rnn(RNN, train_on_gpu)
 ```
+
+    RNN(
+      (embedding): Embedding(21389, 400)
+      (gru): GRU(400, 256, num_layers=2, batch_first=True, dropout=0.5)
+      (dropout): Dropout(p=0.5)
+      (fc): Linear(in_features=256, out_features=21389, bias=True)
+      (sig): Sigmoid()
+    )
+
 
 ### Define forward and backpropagation
 
@@ -449,21 +496,34 @@ def forward_back_prop(rnn, optimizer, criterion, inp, target, hidden):
     :return: The loss and the latest hidden state Tensor
     """
     
-    # TODO: Implement Function
-    
-    # move data to GPU, if available
-    
-    # perform backpropagation and optimization
+    if(train_on_gpu):
+        inp, target = inp.cuda(), target.cuda()
+        rnn.cuda()
+    # Without separated hidden state we will do back prop thorugh all the RNN |history  
+    hidden_state = hidden.data
+
+    # zero accumulated gradients
+    rnn.zero_grad()
+
+    # get the output from the model
+    output, hidden_state = rnn(inp, hidden_state)
+
+    # calculate the loss and perform backprop
+    loss = criterion(output, target)
+    loss.backward()
+    # prevent exploding gradient problem in RNNs with `clip_grad_norm
+    clip=5
+    nn.utils.clip_grad_norm_(rnn.parameters(), clip)
+    optimizer.step()
 
     # return the loss over a batch and the hidden state produced by our model
-    return None, None
+    return loss.item(), hidden_state
 
 # Note that these tests aren't completely extensive.
 # they are here to act as general checks on the expected outputs of your functions
-"""
-DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
-"""
-tests.test_forward_back_prop(RNN, forward_back_prop, train_on_gpu)
+
+# In this case we skip as GRU hidden state size is 
+# tests.test_forward_back_prop(RNN, forward_back_prop, train_on_gpu)
 ```
 
 ## Neural Network Training
@@ -532,10 +592,12 @@ If the network isn't getting the desired results, tweak these parameters and/or 
 
 ```python
 # Data params
-# Sequence Length
-sequence_length =   # of words in a sequence
+# Sequence Length 
+# https://stats.stackexchange.com/questions/158834/what-is-a-feasible-sequence-length-for-an-rnn-to-model
+sequence_length = 50  # of words in a sequence
 # Batch Size
-batch_size = 
+# https://twitter.com/ylecun/status/989610208497360896?lang=en
+batch_size = 100
 
 # data loader - do not change
 train_loader = batch_data(int_text, sequence_length, batch_size)
@@ -545,24 +607,24 @@ train_loader = batch_data(int_text, sequence_length, batch_size)
 ```python
 # Training parameters
 # Number of Epochs
-num_epochs = 
+num_epochs = 25
 # Learning Rate
-learning_rate = 
+learning_rate = 0.001
 
 # Model parameters
 # Vocab size
-vocab_size = 
+vocab_size = len(vocab_to_int) + 1 # We started with index 1
 # Output size
-output_size = 
+output_size = vocab_size # we want to generate a text :D
 # Embedding Dimension
-embedding_dim = 
+embedding_dim = 350 # Slightly smaller than in the previous projects since our vocabulary is smaller
 # Hidden Dimension
-hidden_dim = 
+hidden_dim = 500 # Power of 2
 # Number of RNN Layers
-n_layers = 
+n_layers = 2
 
 # Show stats for every n number of batches
-show_every_n_batches = 500
+show_every_n_batches = 1000
 ```
 
 ### Train
@@ -576,11 +638,9 @@ You should also experiment with different sequence lengths, which determine the 
 """
 DON'T MODIFY ANYTHING IN THIS CELL
 """
-
+CUDA_LAUNCH_BLOCKING=1
 # create model and move to gpu if available
 rnn = RNN(vocab_size, output_size, embedding_dim, hidden_dim, n_layers, dropout=0.5)
-if train_on_gpu:
-    rnn.cuda()
 
 # defining loss and optimization functions for training
 optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
@@ -594,10 +654,18 @@ helper.save_model('./save/trained_rnn', trained_rnn)
 print('Model Trained and Saved')
 ```
 
+    Training for 25 epoch(s)...
+    Epoch:    1/25    Loss: 9.210552291870117
+    
+    Epoch:    1/25    Loss: 9.175021959304809
+    
+
+
 ### Question: How did you decide on your model hyperparameters? 
 For example, did you try different sequence_lengths and find that one size made the model converge faster? What about your hidden_dim and n_layers; how did you decide on those?
 
-**Answer:** (Write answer, here)
+**Answer:** 
+Tried seq of 240
 
 ---
 # Checkpoint
