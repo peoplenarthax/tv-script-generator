@@ -333,15 +333,15 @@ print('Sample label: \n', sample_y)
 
     Sample input size:  torch.Size([5, 2])
     Sample input: 
-     tensor([[ 6,  7],
+     tensor([[ 7,  8],
+            [ 1,  2],
+            [ 2,  3],
             [ 3,  4],
-            [ 5,  6],
-            [ 4,  5],
-            [ 8,  9]])
+            [ 5,  6]])
     
     Sample label size:  torch.Size([5])
     Sample label: 
-     tensor([  8,   5,   7,   6,  10])
+     tensor([ 9,  3,  4,  5,  7])
 
 
 ---
@@ -373,7 +373,6 @@ import torch.nn as nn
 
 ## I am using a GRU as it is a newer algorithm and it removes part of the complexity (it has less gates)
 class RNN(nn.Module):
-    
     def __init__(self, vocab_size, output_size, embedding_dim, hidden_dim, n_layers, dropout=0.5):
         """
         Initialize the PyTorch RNN Module
@@ -384,7 +383,8 @@ class RNN(nn.Module):
         :param dropout: dropout to add in between LSTM/GRU layers
         """
         super(RNN, self).__init__()
-
+        print("USING GRU")
+        
         self.output_size = output_size
         self.n_layers = n_layers
         self.hidden_dim = hidden_dim
@@ -401,8 +401,6 @@ class RNN(nn.Module):
         
         # Output 
         self.fc = nn.Linear(hidden_dim, output_size)
-        self.sig = nn.Sigmoid()
-
     
     def forward(self, nn_input, hidden):
         """
@@ -423,14 +421,13 @@ class RNN(nn.Module):
         # dropout, fully-connected layer and sigmoid to output
         out = self.dropout(gru_out)
         out = self.fc(out)
-        sig_out = self.sig(out)
 
         # reshape to be batch_size first
-        sig_out = sig_out.view(batch_size, -1, self.output_size)
+        out = out.view(batch_size, -1, self.output_size)
         # get ONLY the last batch of labels
-        sig_out = sig_out[:, -1] 
+        out = out[:, -1] 
 
-        return sig_out, hidden
+        return out, hidden
     
     
     def init_hidden(self, batch_size):
@@ -449,6 +446,8 @@ class RNN(nn.Module):
             hidden = weight.new(self.n_layers, batch_size, self.hidden_dim).zero_()
 
         return hidden
+    def getType(self):
+        return "GRU"
 
 vocab_size = len(vocab_to_int) + 1
 output_size = vocab_size
@@ -458,18 +457,101 @@ n_layers = 2
 
 net = RNN(vocab_size, output_size, embedding_dim, hidden_dim, n_layers)
 
-print(net)
+print(net.getType())
 # Skipping test since GRU is not accepted (Expected 2 hidden layers instead of one)
 # tests.test_rnn(RNN, train_on_gpu)
 ```
 
-    RNN(
-      (embedding): Embedding(21389, 400)
-      (gru): GRU(400, 256, num_layers=2, batch_first=True, dropout=0.5)
-      (dropout): Dropout(p=0.5)
-      (fc): Linear(in_features=256, out_features=21389, bias=True)
-      (sig): Sigmoid()
-    )
+    USING GRU
+    GRU
+
+
+
+```python
+import torch.nn as nn
+class RNN(nn.Module):
+    def __init__(self, vocab_size, output_size, embedding_dim, hidden_dim, n_layers, dropout=0.5):
+        """
+        Initialize the PyTorch RNN Module
+        :param vocab_size: The number of input dimensions of the neural network (the size of the vocabulary)
+        :param output_size: The number of output dimensions of the neural network
+        :param embedding_dim: The size of embeddings, should you choose to use them        
+        :param hidden_dim: The size of the hidden layer outputs
+        :param dropout: dropout to add in between LSTM/GRU layers
+        """
+        super(RNN, self).__init__()
+        print("Using LSTM")
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.hidden_dim = hidden_dim
+        
+        # Even a non-trained word embedding can help us, usually loss will decay faster in a pre-trained word embedding, but for this exercise we can skip it
+        # https://towardsdatascience.com/pre-trained-word-embeddings-or-embedding-layer-a-dilemma-8406959fd76c 
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        
+        # The LSTM layer
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=n_layers, dropout=dropout, batch_first=True)
+        
+        # Output 
+        self.fc = nn.Linear(hidden_dim, output_size)
+
+
+    def forward(self, nn_input, hidden):
+        """
+        Forward propagation of the neural network
+        :param nn_input: The input to the neural network
+        :param hidden: The hidden state        
+        :return: Two Tensors, the output of the neural network and the latest hidden state
+        """
+        batch_size = nn_input.size(0)
+        nn_input = nn_input.long()
+        # embeddings and gru output
+        embeds = self.embedding(nn_input)
+        lstm_out, hidden = self.lstm(embeds, hidden)
+
+        # stack up gru outputs
+        lstm_out = lstm_out.contiguous().view(-1, self.hidden_dim)
+
+        # dropout, fully-connected layer and sigmoid to output
+        out = self.fc(out)
+
+        # reshape to be batch_size first
+        out = out.view(batch_size, -1, self.output_size)
+        # get ONLY the last batch of labels
+        out = out[:, -1] 
+
+        return out, hidden
+
+    def init_hidden(self, batch_size):
+        '''
+        Initialize the hidden state of an LSTM/GRU
+        :param batch_size: The batch_size of the hidden state
+        :return: hidden state of dims (n_layers, batch_size, hidden_dim)
+        '''
+        # Implement function
+        #self.batch_size = batch_size
+
+        weight = next(self.parameters()).data
+
+        # initialize hidden state with zero weights, and move to GPU if available
+        if (train_on_gpu):
+            hidden = (weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().cuda(),
+                  weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().cuda())
+        else:
+            hidden = (weight.new(self.n_layers, batch_size, self.hidden_dim).zero_(),
+                      weight.new(self.n_layers, batch_size, self.hidden_dim).zero_())
+
+        return hidden
+    def getType(self):
+        return "LSTM"
+
+"""
+DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
+"""
+tests.test_rnn(RNN, train_on_gpu)
+```
+
+    Tests Passed
 
 
 ### Define forward and backpropagation
@@ -495,12 +577,14 @@ def forward_back_prop(rnn, optimizer, criterion, inp, target, hidden):
     :param target: The target output for the batch of input
     :return: The loss and the latest hidden state Tensor
     """
-    
-    if(train_on_gpu):
+    if(train_on_gpu and "cuda" not in type(inp).__name__):
         inp, target = inp.cuda(), target.cuda()
         rnn.cuda()
-    # Without separated hidden state we will do back prop thorugh all the RNN |history  
-    hidden_state = hidden.data
+    # Without separated hidden state we will do back prop thorugh all the RNN |history 
+    if (rnn.getType() == 'GRU'):
+        hidden_state = hidden.data
+    else:
+        hidden_state = tuple([each.data for each in hidden])
 
     # zero accumulated gradients
     rnn.zero_grad()
@@ -540,14 +624,13 @@ The training loop is implemented for you in the `train_decoder` function. This f
 DON'T MODIFY ANYTHING IN THIS CELL
 """
 
-def train_rnn(rnn, batch_size, optimizer, criterion, n_epochs, show_every_n_batches=100):
+def train_rnn(rnn, batch_size, optimizer, criterion, n_epochs, show_every_n_batches=100, epoch_history=[]):
     batch_losses = []
     
     rnn.train()
-
+    
     print("Training for %d epoch(s)..." % n_epochs)
     for epoch_i in range(1, n_epochs + 1):
-        
         # initialize hidden state
         hidden = rnn.init_hidden(batch_size)
         
@@ -567,6 +650,10 @@ def train_rnn(rnn, batch_size, optimizer, criterion, n_epochs, show_every_n_batc
             if batch_i % show_every_n_batches == 0:
                 print('Epoch: {:>4}/{:<4}  Loss: {}\n'.format(
                     epoch_i, n_epochs, np.average(batch_losses)))
+                epoch_history.append({epoch_i, n_epochs, np.average(batch_losses)})
+                state = {'epoch': 4, 'state_dict': rnn.state_dict(),
+                 'optimizer': optimizer.state_dict(), 'epoch_history': epoch_history }
+                torch.save(state, rnnType + str(batch_size) + str(embedding_dim) + str(hidden_dim) + ".pth.tar")
                 batch_losses = []
 
     # returns a trained rnn
@@ -594,10 +681,10 @@ If the network isn't getting the desired results, tweak these parameters and/or 
 # Data params
 # Sequence Length 
 # https://stats.stackexchange.com/questions/158834/what-is-a-feasible-sequence-length-for-an-rnn-to-model
-sequence_length = 50  # of words in a sequence
+sequence_length = 8  # of words in a sequence
 # Batch Size
 # https://twitter.com/ylecun/status/989610208497360896?lang=en
-batch_size = 100
+batch_size = 128
 
 # data loader - do not change
 train_loader = batch_data(int_text, sequence_length, batch_size)
@@ -607,7 +694,7 @@ train_loader = batch_data(int_text, sequence_length, batch_size)
 ```python
 # Training parameters
 # Number of Epochs
-num_epochs = 25
+num_epochs = 10
 # Learning Rate
 learning_rate = 0.001
 
@@ -617,9 +704,9 @@ vocab_size = len(vocab_to_int) + 1 # We started with index 1
 # Output size
 output_size = vocab_size # we want to generate a text :D
 # Embedding Dimension
-embedding_dim = 350 # Slightly smaller than in the previous projects since our vocabulary is smaller
+embedding_dim = 256 # Slightly smaller than in the previous projects since our vocabulary is smaller
 # Hidden Dimension
-hidden_dim = 500 # Power of 2
+hidden_dim = 256
 # Number of RNN Layers
 n_layers = 2
 
@@ -635,37 +722,213 @@ You should also experiment with different sequence lengths, which determine the 
 
 
 ```python
+""" 
+LOAD A CHECKPOINT
+"""
+def load_checkpoint(model, optimizer, epoch_history, filename='checkpoint'):
+    start_epoch = 0
+    print("=> loading checkpoint '{}'".format(filename))
+    checkpoint = torch.load(filename + '.pth.tar')
+    start_epoch = 20 - checkpoint['epoch'] + 1
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                state[k] = v.cuda()
+    epoch_history = checkpoint['epoch_history']
+    print("=> loaded checkpoint '{}' (epoch {})"
+              .format(filename, checkpoint['epoch']))
+
+    return model, optimizer, start_epoch, epoch_history
+```
+
+
+```python
 """
 DON'T MODIFY ANYTHING IN THIS CELL
 """
 CUDA_LAUNCH_BLOCKING=1
 # create model and move to gpu if available
 rnn = RNN(vocab_size, output_size, embedding_dim, hidden_dim, n_layers, dropout=0.5)
-
+rnnType = rnn.getType()
 # defining loss and optimization functions for training
 optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
 criterion = nn.CrossEntropyLoss()
+epoch_history = []
+```
 
+
+```python
+"""
+CHECKPOINT RECOVER
+"""
+# Only run if we want to start from a checkpoint
+rnn, optimizer, num_epochs, epoch_history = load_checkpoint(rnn, optimizer, epoch_history, rnnType + str(batch_size) + str(embedding_dim) + str(hidden_dim))
+```
+
+    => loading checkpoint 'LSTM100256256'
+    => loaded checkpoint 'LSTM100256256' (epoch 4)
+
+
+
+```python
 # training the model
-trained_rnn = train_rnn(rnn, batch_size, optimizer, criterion, num_epochs, show_every_n_batches)
+trained_rnn = train_rnn(rnn, batch_size, optimizer, criterion, num_epochs, show_every_n_batches, epoch_history)
 
 # saving the trained model
 helper.save_model('./save/trained_rnn', trained_rnn)
 print('Model Trained and Saved')
 ```
 
-    Training for 25 epoch(s)...
-    Epoch:    1/25    Loss: 9.210552291870117
+    Training for 10 epoch(s)...
+    Epoch:    1/10    Loss: 5.16559678864479
     
-    Epoch:    1/25    Loss: 9.175021959304809
+    Epoch:    1/10    Loss: 4.5770712430477145
     
+    Epoch:    1/10    Loss: 4.383808809757233
+    
+    Epoch:    1/10    Loss: 4.287842089414597
+    
+    Epoch:    1/10    Loss: 4.208329539060593
+    
+    Epoch:    1/10    Loss: 4.1709895670413974
+    
+    Epoch:    2/10    Loss: 4.042971907107811
+    
+    Epoch:    2/10    Loss: 3.9426254494190216
+    
+    Epoch:    2/10    Loss: 3.9297181346416474
+    
+    Epoch:    2/10    Loss: 3.9133446657657625
+    
+    Epoch:    2/10    Loss: 3.929079731941223
+    
+    Epoch:    2/10    Loss: 3.900395879983902
+    
+    Epoch:    3/10    Loss: 3.814186099825836
+    
+    Epoch:    3/10    Loss: 3.7382403481006623
+    
+    Epoch:    3/10    Loss: 3.7525992069244385
+    
+    Epoch:    3/10    Loss: 3.7528762431144713
+    
+    Epoch:    3/10    Loss: 3.749389326095581
+    
+    Epoch:    3/10    Loss: 3.759434272527695
+    
+    Epoch:    4/10    Loss: 3.6761786748723284
+    
+    Epoch:    4/10    Loss: 3.61893970990181
+    
+    Epoch:    4/10    Loss: 3.615381471633911
+    
+    Epoch:    4/10    Loss: 3.6417170400619505
+    
+    Epoch:    4/10    Loss: 3.6405284876823427
+    
+    Epoch:    4/10    Loss: 3.6572802951335905
+    
+    Epoch:    5/10    Loss: 3.5914850631138173
+    
+    Epoch:    5/10    Loss: 3.5195907945632934
+    
+    Epoch:    5/10    Loss: 3.535171082496643
+    
+    Epoch:    5/10    Loss: 3.561627624511719
+    
+    Epoch:    5/10    Loss: 3.5596289262771608
+    
+    Epoch:    5/10    Loss: 3.578788897514343
+    
+    Epoch:    6/10    Loss: 3.509746023067614
+    
+    Epoch:    6/10    Loss: 3.4580805065631868
+    
+    Epoch:    6/10    Loss: 3.4628732805252076
+    
+    Epoch:    6/10    Loss: 3.5014771640300753
+    
+    Epoch:    6/10    Loss: 3.503985641717911
+    
+    Epoch:    6/10    Loss: 3.529584542989731
+    
+    Epoch:    7/10    Loss: 3.4542041876451757
+    
+    Epoch:    7/10    Loss: 3.3915596282482148
+    
+    Epoch:    7/10    Loss: 3.414061200618744
+    
+    Epoch:    7/10    Loss: 3.438897812604904
+    
+    Epoch:    7/10    Loss: 3.4587203538417817
+    
+    Epoch:    7/10    Loss: 3.4758097858428956
+    
+    Epoch:    8/10    Loss: 3.4100723473764045
+    
+    Epoch:    8/10    Loss: 3.3454812359809876
+    
+    Epoch:    8/10    Loss: 3.3739932897090914
+    
+    Epoch:    8/10    Loss: 3.3981760363578797
+    
+    Epoch:    8/10    Loss: 3.4128150556087493
+    
+    Epoch:    8/10    Loss: 3.4343166253566744
+    
+    Epoch:    9/10    Loss: 3.3670633022135834
+    
+    Epoch:    9/10    Loss: 3.319643014907837
+    
+    Epoch:    9/10    Loss: 3.3355624687671663
+    
+    Epoch:    9/10    Loss: 3.3596406109333037
+    
+    Epoch:    9/10    Loss: 3.375939479589462
+    
+    Epoch:    9/10    Loss: 3.412889516592026
+    
+    Epoch:   10/10    Loss: 3.3316375527197755
+    
+    Epoch:   10/10    Loss: 3.3011471712589264
+    
+    Epoch:   10/10    Loss: 3.3196166834831238
+    
+    Epoch:   10/10    Loss: 3.329296219587326
+    
+    Epoch:   10/10    Loss: 3.3347348880767824
+    
+    Epoch:   10/10    Loss: 3.361762797832489
+    
+    Model Trained and Saved
 
+
+    /opt/conda/lib/python3.6/site-packages/torch/serialization.py:193: UserWarning: Couldn't retrieve source code for container of type RNN. It won't be checked for correctness upon loading.
+      "type " + obj.__name__ + ". It won't be checked "
+
+
+
+```python
+state = {'epoch': 4, 'state_dict': rnn.state_dict(),
+             'optimizer': optimizer.state_dict(), 'epoch_history': epoch_history }
+torch.save(state, rnnType + str(batch_size) + str(embedding_dim) + str(hidden_dim) + ".pth.tar")
+```
 
 ### Question: How did you decide on your model hyperparameters? 
 For example, did you try different sequence_lengths and find that one size made the model converge faster? What about your hidden_dim and n_layers; how did you decide on those?
 
 **Answer:** 
-Tried seq of 240
+So first I tried between GRU and LSTM, and both demonstrated to be fairly similar for this scenario. (Had some problems with the loss since I was inspired by our sentient analysis RNN and I used sigma in the output layer.
+
+For the sequence_length I played with long ones and shorter ones, shorter ones (10 - 20) had a better convergence in the end. Probably because it is closer to the kind of output we want to generate. This last one has 8 words as closer to the average per sentence in the original data.
+For batch sizes, based on Yan LeCun, we should never use something bigger than 32 for minibatches, but then our model became very very slow, I increased the size to 128 and it seemed to be still effective. Probably in the long run 32 minibatches allow micro optimizations on this.
+For hidden and embedding I tried different coombinations based on the lectures of Udacity, embedding needs to be slightly over 200 hundred to create good relationship patterns between words. For hidden dimensions I did not have a clear output, just made it bigger than the embedding size.
+
+One of the changes that helped this converge faster was to get rid of the dropout layer for the LSTM implementation, since the LSTM and GRU RNN already come with Dropout
+
+Learned a bit more about LSTM vs GRU implementations in https://blog.floydhub.com/gru-with-pytorch/
 
 ---
 # Checkpoint
@@ -785,6 +1048,64 @@ pad_word = helper.SPECIAL_WORDS['PADDING']
 generated_script = generate(trained_rnn, vocab_to_int[prime_word + ':'], int_to_vocab, token_dict, vocab_to_int[pad_word], gen_length)
 print(generated_script)
 ```
+
+    /opt/conda/lib/python3.6/site-packages/ipykernel_launcher.py:39: UserWarning: RNN module weights are not part of single contiguous chunk of memory. This means they need to be compacted at every call, possibly greatly increasing memory usage. To compact weights again call flatten_parameters().
+
+
+    jerry:
+    
+    jerry: no.
+    
+    george: i know.
+    
+    jerry:(still looking at his father) you know, i think it's my favorite business.
+    
+    jerry: i don't know if i could be able to do this.
+    
+    morty: well, what do you think?
+    
+    kramer:(looking towards the door) i don't think so.
+    
+    kramer:(to kramer) what happened?
+    
+    jerry: well, i'm sorry. i'm going to be able to get some coffee.
+    
+    kramer:(still looking in his breath) oh, i can't believe it!
+    
+    kramer: hey, i got to tell you, i don't have to get a little too much of this.
+    
+    jerry: well, i just came in with a woman.
+    
+    elaine: i don't want to see you. i mean, if i don't have it, i'll call you at the office, and you don't want to see it.
+    
+    jerry:(on the phone) yeah. i got it, i'm going to have to get it.(to george) what are you doing? i don't know, i just remembered i have to get a cab.
+    
+    george:(to jerry) i can't believe you guys. i was wondering if i should do it. i can't believe this.(to jerry) hey, hey!
+    
+    kramer: hey. hey!(jerry shakes his head)
+    
+    elaine: well, it's all over to minsk.(jerry walks off)
+    
+    jerry:(to jerry) what is it?
+    
+    george:(still in the direction of the car)
+    
+    kramer: oh...
+    
+    jerry:(to elaine) what about you?!
+    
+    jerry: no.
+    
+    george:(looking at his watch) you know, it's not that easy, and i just don't have the big salad.
+    
+    elaine: oh, yeah.
+    
+    george:(to george) hey, what is this?
+    
+    george: what, are you sure?
+    
+    jerry: i
+
 
 #### Save your favorite scripts
 
